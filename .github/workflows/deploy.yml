@@ -42,7 +42,7 @@ jobs:
           test -f dist/index.html || (echo "Missing dist/index.html" && exit 1)
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
