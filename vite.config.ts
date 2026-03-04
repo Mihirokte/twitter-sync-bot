@@ -1,10 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Relative base so assets load correctly on GitHub Pages (e.g. .../twitter-sync-bot/).
+// Absolute base for GitHub Pages so assets always load from correct path.
 export default defineConfig({
   plugins: [react()],
-  base: "./",
+  base: "/twitter-sync-bot/",
   build: {
     outDir: "dist",
     rollupOptions: {
