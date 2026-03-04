@@ -31,6 +31,8 @@ jobs:
       - name: Install and build
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID || '' }}
+          VITE_DEFAULT_SPREADSHEET_ID: ${{ secrets.VITE_DEFAULT_SPREADSHEET_ID || '' }}
+          VITE_GITHUB_REPO: ${{ secrets.VITE_GITHUB_REPO || '' }}
         run: |
           npm ci
           npm run build

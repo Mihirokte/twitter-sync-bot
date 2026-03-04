@@ -19,7 +19,9 @@ Static app hosted on **GitHub Pages** with sync powered by **GitHub Actions**. N
 
    | Secret | Description |
    |--------|-------------|
-   | `VITE_GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID (Web app) for the static site sign-in. |
+   | `VITE_GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID (Web app) for sign-in. |
+   | `VITE_DEFAULT_SPREADSHEET_ID` | (Optional) Default spreadsheet ID so users don’t have to type it. |
+   | `VITE_GITHUB_REPO` | (Optional) Default repo (e.g. `Mihirokte/twitter-sync-bot`) for Sync now. |
    | `TWITTER_COOKIES_JSON` | JSON string: `{"auth_token":"...","ct0":"..."}` (from x.com cookies). |
    | `TWITTER_HANDLE` | Your X/Twitter username (no `@`). |
    | `SPREADSHEET_ID` | Target Google Sheet ID (from the sheet URL). |

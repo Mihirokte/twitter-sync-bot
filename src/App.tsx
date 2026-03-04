@@ -5,10 +5,17 @@ const STORAGE_KEYS = {
   sheetName: "twitter_sync_sheet_name",
   githubRepo: "twitter_sync_github_repo",
   githubToken: "twitter_sync_github_token",
+  googleToken: "twitter_sync_google_token",
+  googleExpiry: "twitter_sync_google_expiry",
 } as const;
 
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+const TOKEN_BUFFER_MS = 60 * 1000; // treat as expired 1 min early
+const TOKEN_LIFETIME_MS = 50 * 60 * 1000; // 50 min
+
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
+const DEFAULT_SPREADSHEET_ID = (import.meta.env.VITE_DEFAULT_SPREADSHEET_ID as string) || "";
+const DEFAULT_GITHUB_REPO = (import.meta.env.VITE_GITHUB_REPO as string) || "";
 
 type SheetRow = string[];
 
@@ -26,6 +33,20 @@ function saveSetting(key: keyof typeof STORAGE_KEYS, value: string): void {
   } catch {
     // ignore
   }
+}
+
+function getStoredGoogleToken(): string | null {
+  const token = loadSetting("googleToken");
+  const expiry = loadSetting("googleExpiry");
+  if (!token || !expiry) return null;
+  const exp = Number(expiry);
+  if (Number.isNaN(exp) || exp <= Date.now() + TOKEN_BUFFER_MS) return null;
+  return token;
+}
+
+function storeGoogleToken(token: string): void {
+  saveSetting("googleToken", token);
+  saveSetting("googleExpiry", String(Date.now() + TOKEN_LIFETIME_MS));
 }
 
 function getGoogleToken(): Promise<string> {
@@ -52,8 +73,10 @@ function getGoogleToken(): Promise<string> {
       scope: SHEETS_SCOPE,
       callback: (res: { access_token?: string; error?: string }) => {
         if (res.error) reject(new Error(res.error));
-        else if (res.access_token) resolve(res.access_token);
-        else reject(new Error("No access token"));
+        else if (res.access_token) {
+          storeGoogleToken(res.access_token);
+          resolve(res.access_token);
+        } else reject(new Error("No access token"));
       },
     });
     client.requestAccessToken();
@@ -91,12 +114,22 @@ function triggerSync(githubRepo: string, githubToken: string): Promise<void> {
   });
 }
 
+const btnPrimary = {
+  padding: "12px 24px",
+  borderRadius: 9999,
+  border: "none",
+  fontWeight: 600,
+  cursor: "pointer" as const,
+};
+const btnGreen = { ...btnPrimary, background: "#22c55e", color: "#022c22" };
+const btnBlue = { ...btnPrimary, background: "#3b82f6", color: "#fff" };
+
 export default function App() {
-  const [spreadsheetId, setSpreadsheetId] = useState(() => loadSetting("spreadsheetId"));
+  const [spreadsheetId, setSpreadsheetId] = useState(() => loadSetting("spreadsheetId") || DEFAULT_SPREADSHEET_ID);
   const [sheetName, setSheetName] = useState(() => loadSetting("sheetName") || "TwitterLikes");
-  const [githubRepo, setGithubRepo] = useState(() => loadSetting("githubRepo"));
+  const [githubRepo, setGithubRepo] = useState(() => loadSetting("githubRepo") || DEFAULT_GITHUB_REPO);
   const [githubToken, setGithubToken] = useState(() => loadSetting("githubToken"));
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(() => getStoredGoogleToken());
   const [rows, setRows] = useState<SheetRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
@@ -124,32 +157,39 @@ export default function App() {
 
   const loadSheet = useCallback(() => {
     if (!accessToken || !spreadsheetId || !sheetName) {
-      setError("Sign in with Google and set Spreadsheet ID + Sheet name.");
+      setError("Sign in with Google and set a spreadsheet.");
       return;
     }
     setError(null);
     setLoading(true);
     fetchSheetRows(accessToken, spreadsheetId, sheetName)
       .then(setRows)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+        if (String(e).includes("401") || String(e).includes("403")) {
+          saveSetting("googleToken", "");
+          saveSetting("googleExpiry", "");
+          setAccessToken(null);
+        }
+      })
       .finally(() => setLoading(false));
   }, [accessToken, spreadsheetId, sheetName]);
 
   const syncNow = useCallback(() => {
     if (!githubRepo || !githubToken) {
-      setSyncStatus("Set GitHub repo and token in Settings first.");
+      setSyncStatus("Add GitHub repo and PAT in Settings first.");
       return;
     }
     setError(null);
     setSyncStatus("Triggering sync…");
     triggerSync(githubRepo, githubToken)
       .then(() => {
-        setSyncStatus("Sync triggered. Refreshing sheet in 5s…");
+        setSyncStatus("Sync triggered. Refreshing in 5s…");
         setTimeout(() => {
           if (accessToken && spreadsheetId && sheetName) {
             fetchSheetRows(accessToken, spreadsheetId, sheetName).then(setRows);
           }
-          setSyncStatus("Done. Refresh the table if needed.");
+          setSyncStatus("Done.");
         }, 5000);
       })
       .catch((e) => {
@@ -160,125 +200,93 @@ export default function App() {
 
   const headers = rows[0] ?? ["tweetId", "author", "authorHandle", "content", "tweetUrl", "likes", "retweets", "action"];
   const dataRows = rows.slice(1);
+  const effectiveSpreadsheet = spreadsheetId || DEFAULT_SPREADSHEET_ID;
+  const canSync = !!githubRepo && !!githubToken;
+  const canLoadSheet = !!accessToken && !!effectiveSpreadsheet && !!sheetName;
 
   return (
-    <div style={{ maxWidth: 900, width: "100%" }}>
-      <h1 style={{ marginBottom: 8 }}>Twitter Likes → Sheets</h1>
-      <p style={{ color: "#94a3b8", marginBottom: 24 }}>
-        Hosted on GitHub Pages. Sync runs in GitHub Actions using your repo secrets.
+    <div style={{ maxWidth: 720, width: "100%" }}>
+      <h1 style={{ marginBottom: 4 }}>Twitter Likes → Sheets</h1>
+      <p style={{ color: "#94a3b8", marginBottom: 20, fontSize: "0.9rem" }}>
+        Sign in with Google, then sync. Your session is kept across refreshes.
       </p>
 
-      <section style={{ marginBottom: 24, padding: 16, background: "#1e293b", borderRadius: 12 }}>
-        <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Settings</h2>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            Spreadsheet ID:
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 20 }}>
+        {!CLIENT_ID ? (
+          <span style={{ color: "#f97316" }}>Configure VITE_GOOGLE_CLIENT_ID in repo secrets.</span>
+        ) : !accessToken ? (
+          <button type="button" onClick={signIn} style={btnGreen}>
+            Sign in with Google
+          </button>
+        ) : (
+          <>
+            <span style={{ color: "#4ade80" }}>Signed in</span>
+            <button
+              type="button"
+              onClick={loadSheet}
+              disabled={loading || !canLoadSheet}
+              style={{ ...btnBlue, opacity: loading || !canLoadSheet ? 0.8 : 1 }}
+            >
+              {loading ? "Loading…" : "Load sheet"}
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={syncNow}
+          disabled={!canSync}
+          style={{ ...btnGreen, opacity: canSync ? 1 : 0.7, cursor: canSync ? "pointer" : "default" }}
+        >
+          Sync now
+        </button>
+        {syncStatus && <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>{syncStatus}</span>}
+      </div>
+
+      <details style={{ marginBottom: 20, background: "#1e293b", borderRadius: 12, padding: "12px 16px" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: "0.95rem" }}>Settings</summary>
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10, maxWidth: 400 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            Spreadsheet ID
             <input
               type="text"
               value={spreadsheetId}
               onChange={(e) => setSpreadsheetId(e.target.value)}
-              placeholder="1BxiMVs0XRA5n..."
-              style={{ width: 220, padding: "6px 8px", borderRadius: 6, border: "1px solid #475569" }}
+              placeholder={DEFAULT_SPREADSHEET_ID ? "Uses default if empty" : "1BxiMVs0XRA5n..."}
+              style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #475569", background: "#0f172a" }}
             />
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            Sheet name:
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            Sheet name
             <input
               type="text"
               value={sheetName}
               onChange={(e) => setSheetName(e.target.value)}
               placeholder="TwitterLikes"
-              style={{ width: 120, padding: "6px 8px", borderRadius: 6, border: "1px solid #475569" }}
+              style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #475569", background: "#0f172a" }}
             />
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            GitHub repo (owner/repo):
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            GitHub repo (owner/repo)
             <input
               type="text"
               value={githubRepo}
               onChange={(e) => setGithubRepo(e.target.value)}
-              placeholder="yourname/twitter-sync-bot"
-              style={{ width: 200, padding: "6px 8px", borderRadius: 6, border: "1px solid #475569" }}
+              placeholder={DEFAULT_GITHUB_REPO || "Mihirokte/twitter-sync-bot"}
+              style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #475569", background: "#0f172a" }}
             />
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            GitHub PAT (repo scope):
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            GitHub PAT (for Sync now)
             <input
               type="password"
               value={githubToken}
               onChange={(e) => setGithubToken(e.target.value)}
               placeholder="ghp_..."
-              style={{ width: 180, padding: "6px 8px", borderRadius: 6, border: "1px solid #475569" }}
+              style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #475569", background: "#0f172a" }}
             />
           </label>
         </div>
-      </section>
-
-      <section style={{ marginBottom: 24 }}>
-        {!CLIENT_ID && (
-          <p style={{ color: "#f97316" }}>
-            Set <code>VITE_GOOGLE_CLIENT_ID</code> at build time (e.g. in repo secrets) for Google Sign-in.
-          </p>
-        )}
-        {CLIENT_ID && !accessToken && (
-          <button
-            type="button"
-            onClick={signIn}
-            style={{
-              padding: "10px 20px",
-              borderRadius: 9999,
-              border: "none",
-              background: "#22c55e",
-              color: "#022c22",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Sign in with Google
-          </button>
-        )}
-        {accessToken && (
-          <button
-            type="button"
-            onClick={loadSheet}
-            disabled={loading || !spreadsheetId}
-            style={{
-              padding: "10px 20px",
-              borderRadius: 9999,
-              border: "none",
-              background: "#3b82f6",
-              color: "#fff",
-              fontWeight: 600,
-              cursor: loading ? "default" : "pointer",
-              opacity: loading || !spreadsheetId ? 0.8 : 1,
-            }}
-          >
-            {loading ? "Loading…" : "Load sheet"}
-          </button>
-        )}
-      </section>
-
-      <section style={{ marginBottom: 24 }}>
-        <button
-          type="button"
-          onClick={syncNow}
-          disabled={!githubRepo || !githubToken}
-          style={{
-            padding: "12px 28px",
-            borderRadius: 9999,
-            border: "none",
-            background: "#22c55e",
-            color: "#022c22",
-            fontWeight: 600,
-            fontSize: "1rem",
-            cursor: !githubRepo || !githubToken ? "default" : "pointer",
-            opacity: !githubRepo || !githubToken ? 0.7 : 1,
-          }}
-        >
-          Sync now
-        </button>
-        {syncStatus && <span style={{ marginLeft: 12, color: "#94a3b8" }}>{syncStatus}</span>}
-      </section>
+      </details>
 
       {error && (
         <p style={{ color: "#f97373", marginBottom: 16 }} role="alert">
@@ -288,7 +296,7 @@ export default function App() {
 
       {dataRows.length > 0 && (
         <section>
-          <h2 style={{ fontSize: "1rem" }}>Sheet data ({dataRows.length} rows)</h2>
+          <h2 style={{ fontSize: "1rem" }}>Sheet ({dataRows.length} rows)</h2>
           <div style={{ overflowX: "auto", border: "1px solid #334155", borderRadius: 8 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
               <thead>
@@ -304,10 +312,10 @@ export default function App() {
                 {dataRows.map((row, ri) => (
                   <tr key={ri} style={{ borderBottom: "1px solid #334155" }}>
                     {headers.map((_, ci) => (
-                      <td key={ci} style={{ padding: "8px 10px", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <td key={ci} style={{ padding: "8px 10px", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }}>
                         {ci === 4 && row[ci] ? (
-                          <a href={row[ci]} target="_blank" rel="noopener noreferrer">
-                            {row[ci].slice(0, 40)}…
+                          <a href={String(row[ci])} target="_blank" rel="noopener noreferrer">
+                            {String(row[ci]).slice(0, 36)}…
                           </a>
                         ) : (
                           String(row[ci] ?? "").slice(0, 80)
