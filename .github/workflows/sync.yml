@@ -1,0 +1,32 @@
+# Triggered by the static app "Sync now" button via repository_dispatch.
+# Requires repo secrets: TWITTER_COOKIES_JSON, TWITTER_HANDLE, SPREADSHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON
+name: Sync Twitter likes to Sheets
+
+on:
+  repository_dispatch:
+    types: [sync]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run sync
+        env:
+          GITHUB_ACTIONS: "true"
+          TWITTER_COOKIES_JSON: ${{ secrets.TWITTER_COOKIES_JSON }}
+          TWITTER_HANDLE: ${{ secrets.TWITTER_HANDLE }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+          MAX_LIKES: ${{ secrets.MAX_LIKES }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python twitter_sync.py

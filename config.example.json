@@ -1,0 +1,7 @@
+{
+  "twitter_handle": "your_username_without_at",
+  "sheet_id": "YOUR_GOOGLE_SHEETS_SPREADSHEET_ID",
+  "sheet_name": "TwitterLikes",
+  "max_likes": 100
+}
+
