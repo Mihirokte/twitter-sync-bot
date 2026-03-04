@@ -32,7 +32,9 @@ Static app hosted on **GitHub Pages** with sync powered by **GitHub Actions**. N
 
    `https://<owner>.github.io/twitter-sync-bot/`
 
-### If you get a 404
+### If you get a 404 or stuck "Loading..." with 404 for `/src/main.tsx`
+
+The site is serving **repo source** instead of the **built app**. You must use the workflow output:
 
 1. **Pages source**  
    Repo → **Settings** → **Pages** → under "Build and deployment", set **Source** to **GitHub Actions** (not "Deploy from a branch"). Save.
