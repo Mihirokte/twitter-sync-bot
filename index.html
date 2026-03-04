@@ -3,11 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/twitter-sync-bot/" />
     <title>Twitter Likes → Sheets</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui,sans-serif; background: #0f172a; color: #e5e7eb; min-height: 100vh; }
+      #root { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    </style>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><p>Loading…</p></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
