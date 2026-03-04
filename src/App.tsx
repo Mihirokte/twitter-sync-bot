@@ -83,6 +83,44 @@ function getGoogleToken(): Promise<string> {
   });
 }
 
+const SHEETS_HEADERS = ["tweetId", "author", "authorHandle", "content", "tweetUrl", "likes", "retweets", "action"];
+
+async function createNewSpreadsheet(accessToken: string, sheetTitle: string): Promise<{ spreadsheetId: string }> {
+  const body = {
+    properties: { title: "Twitter Likes Sync" },
+    sheets: [
+      {
+        properties: { title: sheetTitle },
+        data: [
+          {
+            startRow: 0,
+            startColumn: 0,
+            rowData: [
+              {
+                values: SHEETS_HEADERS.map((h) => ({ userEnteredValue: { stringValue: h } })),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const res = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `Sheets API ${res.status}`);
+  }
+  const data = (await res.json()) as { spreadsheetId: string };
+  return { spreadsheetId: data.spreadsheetId };
+}
+
 async function fetchSheetRows(accessToken: string, spreadsheetId: string, sheetName: string): Promise<SheetRow[]> {
   const range = encodeURIComponent(`${sheetName}!A1:Z`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueRenderOption=FORMATTED_VALUE`;
@@ -132,6 +170,7 @@ export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(() => getStoredGoogleToken());
   const [rows, setRows] = useState<SheetRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -174,6 +213,20 @@ export default function App() {
       })
       .finally(() => setLoading(false));
   }, [accessToken, spreadsheetId, sheetName]);
+
+  const createNewSheet = useCallback(() => {
+    if (!accessToken) return;
+    setError(null);
+    setCreating(true);
+    createNewSpreadsheet(accessToken, sheetName)
+      .then(({ spreadsheetId: newId }) => {
+        setSpreadsheetId(newId);
+        saveSetting("spreadsheetId", newId);
+        setRows([SHEETS_HEADERS]);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setCreating(false));
+  }, [accessToken, sheetName]);
 
   const syncNow = useCallback(() => {
     if (!githubRepo || !githubToken) {
@@ -242,21 +295,33 @@ export default function App() {
         {syncStatus && <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>{syncStatus}</span>}
       </div>
 
-      <details style={{ marginBottom: 20, background: "#1e293b", borderRadius: 12, padding: "12px 16px" }}>
+      <details style={{ marginBottom: 20, background: "#1e293b", borderRadius: 12, padding: "12px 16px" }} open={!spreadsheetId && !DEFAULT_SPREADSHEET_ID}>
         <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: "0.95rem" }}>Settings</summary>
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10, maxWidth: 400 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label>Spreadsheet ID (saved across refreshes)</label>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="text"
+                value={spreadsheetId}
+                onChange={(e) => setSpreadsheetId(e.target.value)}
+                placeholder={DEFAULT_SPREADSHEET_ID ? "Uses default if empty" : "Create new or paste ID"}
+                style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "1px solid #475569", background: "#0f172a" }}
+              />
+              {accessToken && (
+                <button
+                  type="button"
+                  onClick={createNewSheet}
+                  disabled={creating}
+                  style={{ ...btnGreen, padding: "8px 14px", whiteSpace: "nowrap" }}
+                >
+                  {creating ? "Creating…" : "Create new"}
+                </button>
+              )}
+            </div>
+          </div>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            Spreadsheet ID
-            <input
-              type="text"
-              value={spreadsheetId}
-              onChange={(e) => setSpreadsheetId(e.target.value)}
-              placeholder={DEFAULT_SPREADSHEET_ID ? "Uses default if empty" : "1BxiMVs0XRA5n..."}
-              style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #475569", background: "#0f172a" }}
-            />
-          </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            Sheet name
+            Sheet name (saved)
             <input
               type="text"
               value={sheetName}
@@ -266,7 +331,7 @@ export default function App() {
             />
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            GitHub repo (owner/repo)
+            GitHub repo (saved)
             <input
               type="text"
               value={githubRepo}
@@ -276,7 +341,7 @@ export default function App() {
             />
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            GitHub PAT (for Sync now)
+            GitHub PAT (saved)
             <input
               type="password"
               value={githubToken}
