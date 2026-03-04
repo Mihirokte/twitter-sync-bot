@@ -32,6 +32,25 @@ Static app hosted on **GitHub Pages** with sync powered by **GitHub Actions**. N
 
    `https://<owner>.github.io/twitter-sync-bot/`
 
+### If you get a 404
+
+1. **Pages source**  
+   Repo → **Settings** → **Pages** → under "Build and deployment", set **Source** to **GitHub Actions** (not "Deploy from a branch"). Save.
+
+2. **Deploy workflow**  
+   Repo → **Actions** → open **"Deploy to GitHub Pages"**. Check the latest run on `main`:
+   - If it’s missing or failed, push a new commit to `main` and wait for the run to finish (green check).
+   - If the **build** job failed, open it and read the log (e.g. `npm ci` or `npm run build` errors).
+   - If the **deploy** job failed, check that the **Pages** environment exists and that the run has permission to deploy.
+
+3. **Exact URL**  
+   Use the exact repo name (case-sensitive in the path):  
+   `https://mihirokte.github.io/twitter-sync-bot/`  
+   (no trailing slash is fine; GitHub redirects.)
+
+4. **Cache**  
+   Try a hard refresh (Ctrl+Shift+R) or an incognito window.
+
 ---
 
 ## 2. One-time setup in the UI

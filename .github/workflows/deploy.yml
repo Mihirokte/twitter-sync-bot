@@ -27,13 +27,19 @@ jobs:
 
       - name: Install and build
         env:
-          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          # Optional: add VITE_GOOGLE_CLIENT_ID in repo secrets for Google Sign-in
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID || '' }}
         run: |
           npm ci
           npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
+
+      - name: Verify artifact
+        run: |
+          ls -la dist/
+          test -f dist/index.html || (echo "Missing dist/index.html" && exit 1)
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@3
